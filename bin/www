@@ -1,0 +1,170 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('pusher:server');
+var http = require('http');
+
+var agenda = require('../lib/agenda');
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Create Socket.io server
+ */
+var io = require('socket.io')(server);
+var redis = require('socket.io-redis');
+
+io.adapter(redis({ host: 'localhost', port: 6379 }));
+
+// custom namespace
+//var nio = io.of('/socket');
+io.on('connection', function (socket) {
+    console.log('a user connected');
+    //socket.join('room');
+    socket.on('chat message', function(msg){
+        console.log(msg);
+        io.emit('chat message', msg);
+    });
+
+    //订阅一个频道
+    socket.on('subscribe',function(topic,fn){
+        socket.join(topic);
+        console.log(socket.id+'订阅了频道'+topic);
+        //订阅成功
+        fn({"success":true, "messageId": "11842355493944946011"});
+        //socket.broadcast.to(socket.id).emit('suback',{"name":"subscribe","args":[{"success":true, "messageId": "11842355493944946011"}]});
+    });
+
+    //发布一个消息
+    socket.on('publish',function(args,fn){
+        var topic=args.topic;
+        var msg=args.msg;
+        var event=args.event;
+        if(args.topic=='undefined'){
+
+        }
+        io.to(topic).emit(event,msg);
+        fn({"success":true, "messageId": "11842355493944946011"});
+        //socket.broadcast.to(socket.id).emit('puback',{"name":"puback","args":[{"success":true, "messageId": "11842355493944946011"}]});
+    });
+
+    socket.on('get_topic_list',function(args,fn){
+        var topics = socket.rooms;
+        fn({'data':{'topics':topics},'success':true});//success
+        //fn({'success':false,'error_msg':'Broker Error'});//error
+    });
+
+
+});
+
+//io.use(function(socket, next){
+//    if (socket.request.headers.cookie) return next();
+//    next(new Error('Authentication error'));
+//});
+
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+//agenda.define('delete old users', function(job, done) {
+//    User.remove({lastLogIn: { $lt: twoDaysAgo }}, done);
+//});
+
+//agenda.every('2 seconds', 'delete old users');
+  agenda.start(); //启动agenda
+
+  process.on('SIGTERM', graceful);
+  process.on('SIGINT' , graceful);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+    var port = parseInt(val, 10);
+
+    if (isNaN(port)) {
+        // named pipe
+        return val;
+    }
+
+    if (port >= 0) {
+        // port number
+        return port;
+    }
+
+    return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+    if (error.syscall !== 'listen') {
+        throw error;
+    }
+
+    var bind = typeof port === 'string'
+        ? 'Pipe ' + port
+        : 'Port ' + port
+
+    // handle specific listen errors with friendly messages
+    switch (error.code) {
+        case 'EACCES':
+            console.error(bind + ' requires elevated privileges');
+            process.exit(1);
+            break;
+        case 'EADDRINUSE':
+            console.error(bind + ' is already in use');
+            process.exit(1);
+            break;
+        default:
+            throw error;
+    }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+    var addr = server.address();
+    var bind = typeof addr === 'string'
+        ? 'pipe ' + addr
+        : 'port ' + addr.port;
+    debug('Listening on ' + bind);
+}
+
+/**
+ * graceful stop agenda
+ */
+  function graceful() {
+    agenda.stop(function() {
+    console.log("agenda gracefull stoped");
+      process.exit(0);
+    });
+  }
+
+  agenda.on('start', function(job) {
+    console.log("Job %s starting", job.attrs.name);
+  });
